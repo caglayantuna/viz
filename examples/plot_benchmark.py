@@ -2,16 +2,16 @@
 Benchmarking
 =======================
 
-This example demonstrates how to compare Tensorly methods with external methods
-by using real data from Tensorly. Our aim is to provide more generalized benchmark
-functions to Tensorly users in the future versions of Tensorly.
+This example demonstrates how to benchmark Tensorly methods, using dataset available in Tensorly.
+The user may also compare built-in methods with any external method. 
 
+Note: our goal is to provide more generalized benchmark functions to Tensorly users in the future versions of Tensorly.
 """
 
 ##############################################################################
 # Introduction
 # -----------------------
-# Tensorly includes 4 real dataset for now:
+# As of Autumn 2022, Tensorly includes a few dataset:
 #
 # 1. IL2data
 #        * Mutein treatment responses
@@ -22,14 +22,16 @@ functions to Tensorly users in the future versions of Tensorly.
 # 4. Kinetic
 #        * 4-way quantified measurement data
 #
-# Each dataset includes some additional information such as reference, name of the modes,
-# suggested task and description. This information is used as labels when visualizing the results.
+# Each dataset includes meta-information such as a scholar reference, the name of the modes,
+# a suggested data mining task and a description. This information is used as labels when visualizing the results.
 
 import tensorly as tl
 from tensorly.metrics import RMSE
 from tensorly.datasets import load_IL2data
 import numpy as np
 
+# First let us load the IL2data dataset. The syntax is inspired from scikit-learn.
+# For simplicity here we replaced missing values in the data with zeroes.
 dataset = load_IL2data()
 tensor = dataset.tensor
 tensor[np.isnan(tensor)] = 0
@@ -44,28 +46,46 @@ print(dims)
 # for all of them. Here we use `initialize_nn_cp` as an example. You can also define
 # your initial CPTensor.
 
-from tensorly.decomposition._nn_cp import initialize_nn_cp
+# TODO: I had a bug here, had to import initialize_cp??
+#from tensorly.decomposition._nn_cp import initialize_nn_cp
+from tensorly.decomposition._nn_cp import initialize_cp
 rank = 5
-initial_tensor = initialize_nn_cp(tensor, rank=rank, init="random")
+#initial_tensor = initialize_nn_cp(tensor, rank=rank, init="random")
+initial_tensor = initialize_cp(tensor, rank=rank, init="random")
+# TODO: @caglayan this error is weird right? I would compute rather something like this:
+# first_error = tl.norm(tensor - initial_tensor, 2) / tl.norm(tensor, 2)
+# In tensorly algorithms we use even the unnormalized error:
+# first_error = tl.norm(tensor - initial_tensor, 2)**2
+# Or even better, use RMSE as below??
 first_error = tl.sqrt(tl.abs(tl.norm(tensor, 2)**2 - tl.cp_norm(initial_tensor)**2)) / tl.norm(tensor, 2)
 
 ##########################################################################
-# Let us import some decomposition methods from Tensorly. Then, we put them in a
-# list below. You can also append your method to this list to compare your own method
+# Let us import some decomposition methods from Tensorly. We are going to compare three built-in algorithms:
+# - non_negative_parafac (using multiplicative updates)
+# - non_negative_parafac_hals (using block-coordinate updates)
+# - parafac (an implementation of alternating least squares, without nonnegativity)
+# Then, we put them in a list below. You can also append your method to this list to compare your own method
 # with them.
 
 from tensorly.decomposition import non_negative_parafac_hals, non_negative_parafac, parafac
 method = [non_negative_parafac, non_negative_parafac_hals, parafac]
+# If you have a custom algorithm `my_alg` to compare with, simply add the function name as follows
+# method = [non_negative_parafac, non_negative_parafac_hals, parafac, my_alg]
+# Note that it should have a signature including the following inputs
+# my_alg(tensor, rank, n_iter_max=, init=, tol=, return_errors=)
+
 
 ###########################################################################
 # Here we define some variables to compare selected methods.
 
 import time
 
+# A few storage arrays
 cp_tensors = []
 errors = []
 rmse = []
 proc_time = []
+# Algorithms hyperparameters
 n_iter_max = 100
 tol = 1-16
 
@@ -78,7 +98,7 @@ for i in range(len(method)):
     cp_tensor_res, error = method[i](tensor, rank, n_iter_max=n_iter_max, init=initial_tensor.cp_copy(), tol=tol,
                                      return_errors=True)
     proc_time.append(time.time() - tic)
-    error.insert(0, first_error)
+    error.insert(0, first_error)  # assuming the methods do not compute initial error, as in tensorly.
     cp_tensors.append(cp_tensor_res.cp_copy())
     errors.append(error)
     rmse.append(RMSE(tensor, tl.cp_to_tensor(cp_tensor_res)))
@@ -87,10 +107,10 @@ for i in range(len(method)):
 for i in range(len(proc_time)):
     print("Processing time of" + ' ' + str(method[i].__name__) + ":", str("{:.2f}".format(proc_time[i])))
 print(len(errors))
-print(errors[0])
-print(errors[1])
-
-print(errors[2])
+# TODO @caglayan remove these prints? or print in loop?
+#print(errors[0])
+#print(errors[1])
+#print(errors[2])
 ##########################################################################
 # We can plot error per iteration now. Since we inserted same first error for
 # each method, error will start to decrease from the same point.
